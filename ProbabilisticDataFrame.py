@@ -1,7 +1,5 @@
 
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-
-
                                         ProbabilisticDataFrame
 
 Class for automatic uncertainity propagation for dataframe calculation.
@@ -12,7 +10,9 @@ Class for automatic uncertainity propagation for dataframe calculation.
 import pandas as pd
 from scipy.stats import chi2 
 import numpy as np
+from CoolProp.CoolProp import PropsSI
 
+H = lambda P,T : PropsSI('H', 'P', P*1E5, 'T', T+273.15, 'R245fa')
 np.random.seed(42) # Seed fixed for random sample generations
 
 # Class definition
@@ -20,7 +20,8 @@ class ProbabilisticDataFrame():
 
     """Class for automatic uncertainity propagation for dataframe calculation."""
 
-    def __init__(self, df:pd.Series|pd.DataFrame, udf:pd.Series|pd.DataFrame) :
+    def __init__(self, df:pd.Series|pd.DataFrame, udf:pd.Series|pd.DataFrame,
+                 **kwargs) :
 
         self.df = df
         self.udf = udf
@@ -34,14 +35,19 @@ class ProbabilisticDataFrame():
         if self.df.shape != self.udf.shape :
             raise ValueError(f"""
         Dataframes don't have the same dimensions : 
-           - df.shape = {df.shape} 
-           - udf.shape = {udf.shape}
+           - df.shape = {self.df.shape} 
+           - udf.shape = {self.udf.shape}
                             """)
-        
-        if False in [df.columns[i] == udf.columns[i] for i in range(len(df.columns))] : 
-            raise ValueError(f"""Dataframes don't have the same column names :
-                df.columns : {df.columns}
-                udf.columns : {udf.columns}""")
+        if type(self.df) == pd.core.frame.DataFrame : 
+            if False in [self.df.columns[i] == self.udf.columns[i] for i in range(len(self.df.columns))] : 
+                raise ValueError(f"""Dataframes don't have the same column names :
+                    df.columns : {self.df.columns}
+                    udf.columns : {self.udf.columns}""")
+        elif pd.core.series.Series :
+            if False in [self.df.index[i] == self.udf.index[i] for i in range(len(self.df.index))] : 
+                raise ValueError(f"""Series don't have the same column names :
+                    df.index : {self.df.index}
+                    udf.index : {self.udf.index}""")
         
     def propagate(self, Xk:list[str], exp:list[str], alpha : float) -> None :
 
@@ -58,31 +64,51 @@ class ProbabilisticDataFrame():
         nVar = len(Xk)
         exp_df = exp_udf = exp_df_mc = exp[-1] # Initialize expressions for df and udf
 
-        df_mc = pd.DataFrame(index=range(len(self.df)), columns=Xk)
-        # Replace the variables by their name in both expressions
-        for i in range(nVar) :
-            exp_df = exp_df.replace('X'+str(i), "self.df['" + Xk[i] + "']")
-            exp_udf = exp_udf.replace('X'+str(i), "self.udf['" + Xk[i] + "']")
-            exp_df_mc = exp_df_mc.replace('X'+str(i), "self.df_mc['" + Xk[i] + "']")
+        if type(self.df) == pd.core.frame.DataFrame : 
+            self.df_mc = pd.DataFrame(index=range(len(self.df)), columns=Xk)
+            for i in range(nVar) :
+                exp_df = exp_df.replace('X'+str(i), "self.df['" + Xk[i] + "'].values")
+                exp_udf = exp_udf.replace('X'+str(i), "self.udf['" + Xk[i] + "'].values")
+                exp_df_mc = exp_df_mc.replace('X'+str(i), "self.df_mc['" + Xk[i] + "'].values")
 
-        ## Generate random samples for each Xk and calculate their mean and std
-            samples = np.random.normal(loc = self.df[Xk[i]].values,
-                                       scale = self.udf[Xk[i]].values,
-                                       size = (N,len(self.df)))
-            list_samples = [pd.Series(samples[:,index]) for index in range(len(samples[0]))]
-            df_mc[Xk[i]] = list_samples
+                samples = np.random.normal(loc = self.df[Xk[i]].values,
+                                        scale = self.udf[Xk[i]].values,
+                                        size = (N,len(self.df)))
+                
+                list_samples = [pd.Series(samples[:,index]) for index in range(len(samples[0]))]
 
-        self.df[exp[0]] = eval(exp_df) # Evaluate the expression for df
-        
-        # Monte Carlo simulations for uncertainty calculation
+                self.df_mc[Xk[i]] = [list_samples]
+                    ## Generate random samples for each Xk and calculate their mean and std
+  
+            # Monte Carlo simulations for uncertainty calculation
 
-        ## Random population initialization for the variables Xk
-        self.df_mc = self.random_population_initialization(Xk,N)
+            ## Random population initialization for the variables Xk
 
-        ## Evaluate the expression with df_mc
-        self.df_mc[exp[0]] = eval(exp_df_mc)
-        self.df[exp[0]] = self.df_mc[exp[0]].apply(np.mean)
-        self.udf[exp[0]] = self.df_mc[exp[0]].apply(np.std)
+            ## Evaluate the expression with df_mc
+            self.df_mc[exp[0]] = eval(exp_df_mc)
+            self.df[exp[0]] = self.df_mc[exp[0]].apply(np.mean)
+            self.udf[exp[0]] = self.df_mc[exp[0]].apply(np.std)
+
+        elif pd.core.series.Series :
+            self.df_mc = pd.DataFrame(index=range(N), columns=Xk)
+            for i in range(nVar) :
+                exp_df = exp_df.replace('X'+str(i), "self.df['" + Xk[i] + "'].values")
+                exp_udf = exp_udf.replace('X'+str(i), "self.udf['" + Xk[i] + "'].values")
+                exp_df_mc = exp_df_mc.replace('X'+str(i), "self.df_mc['" + Xk[i] + "'].values")
+
+                list_samples = np.random.normal(loc=self.df[Xk[i]], scale=self.udf[Xk[i]], size=N)
+                self.df_mc[Xk[i]] = list_samples  # Chaque colonne est une Series
+
+                    ## Generate random samples for each Xk and calculate their mean and std
+            # Monte Carlo simulations for uncertainty calculation
+            print(f'exp_df_mc : {exp_df_mc}')
+            ## Random population initialization for the variables Xk
+
+            ## Evaluate the expression with df_mc
+            self.df_mc[exp[0]] = eval(exp_df_mc)
+            self.df[exp[0]] = self.df_mc[exp[0]].mean()
+            self.udf[exp[0]] = self.df_mc[exp[0]].std(ddof=1)
+
         
     def N_samples_calculation(self, alpha:float) -> int :
         """Determination of the number of simulation samples N"""
@@ -98,32 +124,27 @@ class ProbabilisticDataFrame():
             diff = (chi2.ppf((1-alpha/2),nu) - chi2.ppf(alpha/2,nu))/nu
         N = (nu + 1)*2 # Overestimation of N to make sure of the independance of the samples
         return(N)
-
-    def random_population_initialization(self, Xk : list[str], N : int) -> pd.DataFrame : 
-
-        """Generate for each Xk variable a normal distribution over its mean value.
-        Xk can be a scalar or an array (pd.Dataframe or pd.Series)"""
-
-        ## Initialization of an empty dataframe which shape == df.shape
-        df_mc = pd.DataFrame(index=range(len(df)), columns=Xk)
-        ## Generate random samples for each Xk and calculate their mean and std
-        for X in Xk :
-            samples = np.random.normal(loc = self.df[X].values,
-                                       scale = self.udf[X].values,
-                                       size = (N,len(self.df)))
-            list_samples = [pd.Series(samples[:,index]) for index in range(len(samples[0]))]
-            df_mc[X] = list_samples
-        return(df_mc)
+    
+    def add_functions(self,**kwargs):
+        print(type(**kwargs))
 
 if __name__ == "__main__" :
 
     """Quick test to use the probilistic DataFrame"""
+    """
     data = {'A' : [1,2], 'B' : [3,4]}
     udata = {'A' : [0.01,0.02], 'B' : [0.03,0.04]}
     df = pd.DataFrame(data)
     udf = pd.DataFrame(udata)
     pdf = ProbabilisticDataFrame(df,udf)
     pdf.propagate(['A','B'],exp=["C","X0*X1"],alpha=0.05)
-
+"""
+    """Quick test to use the probilistic Serie"""       
+    data = {'A' : [1,2], 'B' : [3,4]}
+    udata = {'A' : [0.01,0.02], 'B' : [0.03,0.04]}
+    df = pd.DataFrame(data).mean()
+    udf = pd.DataFrame(udata).std()
+    pdf = ProbabilisticDataFrame(df,udf)
+    pdf.propagate(['A','B'],exp=["C","X0*X1"],alpha=0.05)
         
     
