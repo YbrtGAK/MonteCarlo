@@ -115,7 +115,7 @@ if __name__ == "__main__" :
     df = pd.DataFrame(data)
     udf = pd.DataFrame(udata)
     pdf = ProbabilisticDataFrame(df,udf)
-    exp = "X0*X1"
+    exp = "H(X0,H1)"
     pdf.propagate(['A','B'],exp=["C",exp],alpha=0.05)
 
     """Quick test to use the probilistic Serie"""       
