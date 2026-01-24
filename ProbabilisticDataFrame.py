@@ -2,7 +2,7 @@
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
                                         ProbabilisticDataFrame
 
-Class for automatic uncertainity propagation for dataframe calculation.
+                Class for automatic uncertainity propagation for dataframe calculation.
 
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
